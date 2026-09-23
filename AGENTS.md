@@ -1,3 +1,7 @@
+# Правила репозитория
+
+Перед изменениями прочитайте [BRANCH_RULES.md](BRANCH_RULES.md) и соблюдайте зоны ответственности, правила API и порядок синхронизации веток. Эти правила общие для `main`, `frontend` и `backend`. Явные указания пользователя имеют приоритет.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know

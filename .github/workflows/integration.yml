@@ -1,7 +1,7 @@
 name: Full stack checks
 on:
   push:
-    branches: [main, frontend]
+    branches: [main, frontend, backend]
   pull_request:
 permissions:
   contents: read
