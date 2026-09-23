@@ -105,3 +105,67 @@ test('an in-flight AI generation cannot overwrite newer human edits', async t =>
   const current = (await app.inject({ url: `/api/business/tasks/${task.id}`, headers })).json();
   assert.equal(current.card.contact, 'human@example.test'); assert.equal(current.card.data, '');
 });
+
+const briefFields = { context: '', need: '', data: '', outcome: '', criteria: '', constraints: '', users: '', contact: '', interaction: '' };
+
+test('brief analysis supports the frontend contract without creating a draft and labels fallback honestly', async t => {
+  const app = await createApp({ seed: false, ai: { apiKey: '' } }); t.after(() => app.close());
+  const response = await app.inject({ method: 'POST', url: '/api/brief/analyze', payload: { brief: description, fields: briefFields } });
+  assert.equal(response.statusCode, 200, response.body);
+  const body = response.json();
+  assert.equal(body.source, 'demo');
+  assert.deepEqual(body.ai, { mode: 'fallback', reason: 'missing_api_key', model: null });
+  assert.ok(body.questions.length >= 3 && body.questions.length <= 9);
+  assert.equal(new Set(body.questions.map((q: { field: string }) => q.field)).size, body.questions.length);
+  for (const question of body.questions) {
+    assert.ok(Object.keys(briefFields).includes(question.field));
+    assert.ok(question.question.length >= 8 && question.question.length <= 600);
+  }
+  const tasks = await app.inject({ url: '/api/business/tasks', headers: { 'x-business-id': 'business-demo' } });
+  assert.deepEqual(tasks.json().items, []);
+  const invalid = await app.inject({ method: 'POST', url: '/api/brief/analyze', payload: { brief: '   ', fields: briefFields } });
+  assert.equal(invalid.statusCode, 400);
+});
+
+test('brief analysis maps frontend fields to the AI card and maps questions back', async t => {
+  const config = await provider(t, async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    const input = JSON.parse(JSON.parse(body).input[1].content);
+    assert.equal(input.description, description);
+    assert.equal(input.card.expectedResult, 'Прототип');
+    assert.equal(input.card.successCriteria, 'Три гипотезы');
+    assert.equal(input.card.collaborationFormat, 'Еженедельные встречи');
+    res.end(JSON.stringify(envelope({ questions: [
+      { field: 'expectedResult', question: 'В каком формате нужен прототип?' },
+      { field: 'successCriteria', question: 'Как проверите три гипотезы?' },
+      { field: 'collaborationFormat', question: 'Кто будет участвовать во встречах?' },
+    ], extractedFields: [] })));
+  });
+  const app = await createApp({ seed: false, ai: config }); t.after(() => app.close());
+  const response = await app.inject({ method: 'POST', url: '/api/brief/analyze', payload: { brief: description, fields: { ...briefFields, outcome: 'Прототип', criteria: 'Три гипотезы', interaction: 'Еженедельные встречи' } } });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().source, 'api');
+  assert.equal(response.json().ai.mode, 'live');
+  assert.deepEqual(response.json().questions.map((q: { field: string }) => q.field), ['outcome', 'criteria', 'interaction']);
+});
+
+test('brief analysis filters title, short and duplicate questions then fills three distinct frontend fields', async t => {
+  const config = await provider(t, (_req, res) => { res.end(JSON.stringify(envelope({ questions: [
+    { field: 'title', question: 'Как назвать задачу?' },
+    { field: 'need', question: 'Что именно нужно выяснить?' },
+    { field: 'need', question: 'Какую проблему нужно решить?' },
+    { field: 'data', question: 'CSV?' },
+  ], extractedFields: [] }))); });
+  const app = await createApp({ seed: false, ai: config }); t.after(() => app.close());
+  const response = await app.inject({ method: 'POST', url: '/api/brief/analyze', payload: { brief: description, fields: briefFields } });
+  assert.equal(response.statusCode, 200, response.body);
+  const body = response.json();
+  assert.equal(body.ai.mode, 'live');
+  assert.equal(body.questions[0].field, 'need');
+  assert.ok(body.questions.length >= 3 && body.questions.length <= 9);
+  assert.equal(new Set(body.questions.map((q: { field: string }) => q.field)).size, body.questions.length);
+  for (const question of body.questions) {
+    assert.ok(Object.keys(briefFields).includes(question.field));
+    assert.ok(question.question.length >= 8 && question.question.length <= 600);
+  }
+});

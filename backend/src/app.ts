@@ -4,11 +4,11 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
-import { AiMetaSchema, AnalysisSchema, AnswersSchema, CardSchema, ErrorSchema, Id, LevelSchema, MilestoneInputSchema, MilestoneSchema, nonempty, object, ProposalInputSchema, ProposalSchema, PublishedSchema, QuestionSchema, TaskSchema, TeamSchema, text, Version } from './contracts.js';
+import { AiMetaSchema, AnalysisSchema, AnswersSchema, BriefAnalysisInputSchema, BriefAnalysisSchema, CreateTaskInputSchema, EditTaskInputSchema, ErrorSchema, Id, LevelSchema, MilestoneInputSchema, MilestoneSchema, object, ProposalInputSchema, ProposalSchema, PublishedSchema, QuestionSchema, TaskSchema, TeamSchema, text, Version } from './contracts.js';
 import { Store } from './store.js';
 import { BUSINESSES, Service } from './service.js';
 import { ApiError } from './errors.js';
-import { analyzeTask, type AiConfig } from './ai.js';
+import { analyzeBrief, analyzeTask, type AiConfig } from './ai.js';
 import { calculateRating } from './rating.js';
 import { seedDemo } from './seed.js';
 
@@ -61,13 +61,17 @@ export async function createApp(options: AppOptions = {}) {
   app.get('/api/business/tasks', { schema: { tags: ['Business tasks'], security: businessSecurity, response: responses(200, list(TaskSchema)) } }, async request => ({ items: service.businessTasks(request.headers['x-business-id'] as string | undefined) }));
   app.get('/api/business/tasks/:id', { schema: { tags: ['Business tasks'], security: businessSecurity, params, response: responses(200, TaskSchema) } }, async request => service.ownedTask(request.params.id, request.headers['x-business-id'] as string | undefined));
   app.post('/api/tasks', {
-    schema: { tags: ['Business tasks'], security: businessSecurity, body: object({ description: nonempty(12000), industry: nonempty(120), topic: Type.Optional(nonempty(120)) }), response: responses(201, TaskSchema) },
+    schema: { tags: ['Business tasks'], security: businessSecurity, body: CreateTaskInputSchema, response: responses(201, TaskSchema) },
   }, async (request, reply) => reply.code(201).send(service.createTask(request.headers['x-business-id'] as string | undefined, request.body)));
   app.patch('/api/tasks/:id', {
-    schema: { tags: ['Business tasks'], security: businessSecurity, params, body: object({ version: Version, card: Type.Optional(Type.Partial(CardSchema)), industry: Type.Optional(nonempty(120)), topic: Type.Optional(nonempty(120)) }), response: responses(200, TaskSchema) },
+    schema: { tags: ['Business tasks'], security: businessSecurity, params, body: EditTaskInputSchema, response: responses(200, TaskSchema) },
   }, async request => service.editTask(request.params.id, request.headers['x-business-id'] as string | undefined, request.body));
   app.post('/api/tasks/:id/confirm', { schema: { tags: ['Business tasks'], security: businessSecurity, params, body: versionBody, response: responses(200, TaskSchema) } }, async request => service.confirmTask(request.params.id, request.headers['x-business-id'] as string | undefined, request.body.version));
   app.post('/api/tasks/:id/publish', { schema: { tags: ['Business tasks'], security: businessSecurity, params, body: versionBody, response: responses(200, PublishedSchema) } }, async request => service.publishTask(request.params.id, request.headers['x-business-id'] as string | undefined, request.body.version));
+
+  app.post('/api/brief/analyze', {
+    schema: { tags: ['AI'], body: BriefAnalysisInputSchema, response: responses(200, BriefAnalysisSchema) },
+  }, async request => analyzeBrief(request.body, options.ai));
 
   app.post('/api/tasks/:id/clarify', {
     schema: { tags: ['AI'], security: businessSecurity, params, body: versionBody, response: responses(200, AnalysisSchema) },

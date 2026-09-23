@@ -1,6 +1,6 @@
 import { Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
-import { CardFieldSchema, CardSchema, object, QuestionSchema, nonempty, type Answer, type Card, type Question, type AiMeta, type CardField } from './contracts.js';
+import { CardFieldSchema, CardSchema, emptyCard, object, QuestionSchema, nonempty, type Answer, type Card, type Question, type AiMeta, type CardField, type BriefField, type BriefQuestion, type BriefAnalysisInput, type BriefAnalysis } from './contracts.js';
 import { ApiError } from './errors.js';
 
 export type AiConfig = { apiKey?: string; baseUrl?: string; model?: string; timeoutMs?: number };
@@ -94,4 +94,31 @@ export async function analyzeTask(input: Input, config: AiConfig = {}): Promise<
   } catch {
     return fallback(card, controller.signal.aborted ? 'timeout' : 'invalid_response');
   } finally { clearTimeout(timeout); }
+}
+
+const briefCardFields = {
+  context: 'context', need: 'need', data: 'data', outcome: 'expectedResult', criteria: 'successCriteria',
+  constraints: 'constraints', users: 'users', contact: 'contact', interaction: 'collaborationFormat',
+} as const satisfies Record<BriefField, CardField>;
+
+export async function analyzeBrief(input: BriefAnalysisInput, config: AiConfig = {}): Promise<BriefAnalysis> {
+  const card = emptyCard();
+  for (const field of Object.keys(briefCardFields) as BriefField[]) card[briefCardFields[field]] = input.fields[field].trim();
+  const analysis = await analyzeTask({ description: input.brief, card }, config);
+  const questions: BriefQuestion[] = [];
+  const seen = new Set<BriefField>();
+  for (const question of analysis.questions) {
+    const field = (Object.keys(briefCardFields) as BriefField[]).find(field => briefCardFields[field] === question.field);
+    const text = question.question.trim();
+    if (!field || seen.has(field) || text.length < 8 || text.length > 600) continue;
+    questions.push({ field, question: text }); seen.add(field);
+  }
+  const fields = Object.keys(briefCardFields) as BriefField[];
+  const fallbackFields = [...fields.filter(field => !input.fields[field].trim()), ...fields];
+  for (const field of fallbackFields) {
+    if (questions.length >= 3) break;
+    if (seen.has(field)) continue;
+    questions.push({ field, question: fallbackQuestions[briefCardFields[field]] }); seen.add(field);
+  }
+  return { questions, source: analysis.ai.mode === 'live' ? 'api' : 'demo', ai: analysis.ai };
 }

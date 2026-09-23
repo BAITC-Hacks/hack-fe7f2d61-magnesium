@@ -1,7 +1,7 @@
 name: Backend checks
 on:
   push:
-    branches: [backend]
+    branches: [backend, main]
     paths: ['backend/**', '.github/workflows/backend.yml']
   pull_request:
     paths: ['backend/**', '.github/workflows/backend.yml']

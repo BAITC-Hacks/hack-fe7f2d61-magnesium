@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/app.js';
+import { Store } from '../src/store.js';
 import type { LightMyRequestResponse } from 'fastify';
 
 const business = { 'x-business-id': 'business-demo' };
@@ -126,4 +127,64 @@ test('SQLite persists drafts, proposals and progress across app restarts', async
   assert.equal((await second.inject(`/api/tasks/${task.id}`)).json().rating.score, 20);
   assert.equal((await second.inject('/api/teams')).json().items[0].xp, 100);
   assert.equal((await second.inject({ url: `/api/tasks/${task.id}/proposals`, headers: business })).json().items[0].status, 'selected');
+});
+
+test('company and updated brief persist while edits invalidate confirmation and preserve published company', async t => {
+  const app = await setup(); t.after(() => app.close());
+  const created = await app.inject({ method: 'POST', url: '/api/tasks', headers: business, payload: { description, industry: 'Retail', company: '  Acme  ' } });
+  assert.equal(created.statusCode, 201, created.body);
+  let task = created.json();
+  assert.equal(task.company, 'Acme');
+  task = (await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, headers: business, payload: { version: task.version, card: { title: 'Анализ оттока' } } })).json();
+  await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/confirm`, headers: business, payload: { version: task.version } });
+  const published = await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/publish`, headers: business, payload: { version: task.version } });
+  assert.equal(published.json().company, 'Acme');
+  const version = task.version;
+  const edit = await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, headers: business, payload: { version, company: '  Acme Research  ', description: '  Новое описание исследования  ' } });
+  assert.equal(edit.statusCode, 200, edit.body);
+  task = edit.json();
+  assert.equal(task.version, version + 1);
+  assert.equal(task.company, 'Acme Research');
+  assert.equal(task.description, 'Новое описание исследования');
+  assert.equal(task.confirmedVersion, null);
+  assert.equal(task.status, 'draft');
+  assert.equal(task.hasUnpublishedChanges, true);
+  assert.equal((await app.inject(`/api/tasks/${task.id}`)).json().company, 'Acme');
+  const saved = await app.inject({ url: `/api/business/tasks/${task.id}`, headers: business });
+  assert.equal(saved.json().description, 'Новое описание исследования');
+  assert.equal(saved.json().company, 'Acme Research');
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, headers: business, payload: { version, company: 'Stale edit' } })).statusCode, 409);
+  assert.equal((await app.inject({ method: 'POST', url: `/api/tasks/${task.id}/publish`, headers: business, payload: { version: task.version } })).statusCode, 409);
+  for (const invalid of [{ description: '   ' }, { description: 'x'.repeat(12001) }, { company: '   ' }, { company: 'x'.repeat(121) }]) {
+    assert.equal((await app.inject({ method: 'PATCH', url: `/api/tasks/${task.id}`, headers: business, payload: { version: task.version, ...invalid } })).statusCode, 400);
+  }
+});
+
+test('proposal progress flags are derived from milestones, including old and stale stored records', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'skillarena-progress-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, 'test.sqlite'); const first = await setup(path);
+  t.after(() => first.close());
+  const task = await publish(first); const student = await team(first);
+  const submitted = await first.inject({ method: 'POST', url: `/api/tasks/${task.id}/proposals`, headers: { 'x-team-id': student.id }, payload: proposal });
+  assert.equal(submitted.json().milestoneConfirmed, false);
+  const submission = submitted.json();
+  const selected = await first.inject({ method: 'PATCH', url: `/api/proposals/${submission.id}/decision`, headers: business, payload: { decision: 'selected' } });
+  assert.equal(selected.json().milestoneConfirmed, false);
+  await first.inject({ method: 'POST', url: `/api/proposals/${submission.id}/progress`, headers: business, payload: { key: 'research', description: 'Исследование завершено', evidenceUrl: 'https://example.test/report' } });
+  const second = await first.inject({ method: 'POST', url: `/api/tasks/${task.id}/proposals`, headers: { 'x-team-id': student.id }, payload: proposal });
+  const store = new Store(path);
+  store.db.prepare("UPDATE proposals SET body = json_remove(body, '$.milestoneConfirmed') WHERE id = ?").run(submission.id);
+  store.db.prepare("UPDATE proposals SET body = json_set(body, '$.milestoneConfirmed', json('true')) WHERE id = ?").run(second.json().id);
+  store.close();
+  const restarted = await setup(path); t.after(() => restarted.close());
+  for (const request of [
+    { url: `/api/tasks/${task.id}/proposals`, headers: business },
+    { url: '/api/team/proposals', headers: { 'x-team-id': student.id } },
+  ]) {
+    const response = await restarted.inject(request);
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json().items.map((item: { milestoneConfirmed: boolean }) => item.milestoneConfirmed), [true, false]);
+  }
+  const reselected = await restarted.inject({ method: 'PATCH', url: `/api/proposals/${submission.id}/decision`, headers: business, payload: { decision: 'selected' } });
+  assert.equal(reselected.json().milestoneConfirmed, true);
 });

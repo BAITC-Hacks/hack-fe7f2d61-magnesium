@@ -642,6 +642,10 @@
                             "maxLength": 120,
                             "type": "string"
                           },
+                          "company": {
+                            "maxLength": 120,
+                            "type": "string"
+                          },
                           "card": {
                             "additionalProperties": false,
                             "type": "object",
@@ -1077,6 +1081,18 @@
                     "maxLength": 120,
                     "pattern": "\\S",
                     "type": "string"
+                  },
+                  "company": {
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "requestId": {
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "type": "string"
                   }
                 }
               }
@@ -1135,6 +1151,10 @@
                       "type": "string"
                     },
                     "topic": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
+                    "company": {
                       "maxLength": 120,
                       "type": "string"
                     },
@@ -1651,6 +1671,10 @@
                           "type": "string"
                         },
                         "topic": {
+                          "maxLength": 120,
+                          "type": "string"
+                        },
+                        "company": {
                           "maxLength": 120,
                           "type": "string"
                         },
@@ -2327,6 +2351,10 @@
                       "maxLength": 120,
                       "type": "string"
                     },
+                    "company": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
                     "card": {
                       "additionalProperties": false,
                       "type": "object",
@@ -2995,6 +3023,12 @@
                       }
                     }
                   },
+                  "description": {
+                    "minLength": 1,
+                    "maxLength": 12000,
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
                   "industry": {
                     "minLength": 1,
                     "maxLength": 120,
@@ -3002,6 +3036,12 @@
                     "type": "string"
                   },
                   "topic": {
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "company": {
                     "minLength": 1,
                     "maxLength": 120,
                     "pattern": "\\S",
@@ -3077,6 +3117,10 @@
                       "type": "string"
                     },
                     "topic": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
+                    "company": {
                       "maxLength": 120,
                       "type": "string"
                     },
@@ -3593,6 +3637,10 @@
                           "type": "string"
                         },
                         "topic": {
+                          "maxLength": 120,
+                          "type": "string"
+                        },
+                        "company": {
                           "maxLength": 120,
                           "type": "string"
                         },
@@ -4280,6 +4328,10 @@
                             "maxLength": 120,
                             "type": "string"
                           },
+                          "company": {
+                            "maxLength": 120,
+                            "type": "string"
+                          },
                           "card": {
                             "additionalProperties": false,
                             "type": "object",
@@ -4793,6 +4845,10 @@
                                 "type": "string"
                               },
                               "topic": {
+                                "maxLength": 120,
+                                "type": "string"
+                              },
+                              "company": {
                                 "maxLength": 120,
                                 "type": "string"
                               },
@@ -5487,6 +5543,10 @@
                       "maxLength": 120,
                       "type": "string"
                     },
+                    "company": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
                     "card": {
                       "additionalProperties": false,
                       "type": "object",
@@ -6000,6 +6060,10 @@
                           "type": "string"
                         },
                         "topic": {
+                          "maxLength": 120,
+                          "type": "string"
+                        },
+                        "company": {
                           "maxLength": 120,
                           "type": "string"
                         },
@@ -6711,6 +6775,10 @@
                       "maxLength": 120,
                       "type": "string"
                     },
+                    "company": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
                     "card": {
                       "additionalProperties": false,
                       "type": "object",
@@ -7224,6 +7292,10 @@
                           "type": "string"
                         },
                         "topic": {
+                          "maxLength": 120,
+                          "type": "string"
+                        },
+                        "company": {
                           "maxLength": 120,
                           "type": "string"
                         },
@@ -7925,6 +7997,10 @@
                       "maxLength": 120,
                       "type": "string"
                     },
+                    "company": {
+                      "maxLength": 120,
+                      "type": "string"
+                    },
                     "card": {
                       "additionalProperties": false,
                       "type": "object",
@@ -8316,6 +8392,445 @@
                     "updatedAt": {
                       "maxLength": 4000,
                       "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 4000,
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/brief/analyze": {
+      "post": {
+        "tags": [
+          "AI"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "brief",
+                  "fields"
+                ],
+                "properties": {
+                  "brief": {
+                    "minLength": 1,
+                    "maxLength": 12000,
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "fields": {
+                    "additionalProperties": false,
+                    "type": "object",
+                    "required": [
+                      "context",
+                      "need",
+                      "data",
+                      "outcome",
+                      "criteria",
+                      "constraints",
+                      "users",
+                      "contact",
+                      "interaction"
+                    ],
+                    "properties": {
+                      "context": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      "need": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      "data": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      "criteria": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      "constraints": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      "users": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      "contact": {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      "interaction": {
+                        "maxLength": 4000,
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "questions",
+                    "source",
+                    "ai"
+                  ],
+                  "properties": {
+                    "questions": {
+                      "minItems": 3,
+                      "maxItems": 9,
+                      "type": "array",
+                      "items": {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "field",
+                          "question"
+                        ],
+                        "properties": {
+                          "field": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "context"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "need"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "data"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "outcome"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "criteria"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "constraints"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "users"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "contact"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "interaction"
+                                ]
+                              }
+                            ]
+                          },
+                          "question": {
+                            "minLength": 8,
+                            "maxLength": 600,
+                            "pattern": "\\S",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "source": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "api"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "demo"
+                          ]
+                        }
+                      ]
+                    },
+                    "ai": {
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "mode",
+                        "reason",
+                        "model"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "live"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "fallback"
+                              ]
+                            }
+                          ]
+                        },
+                        "reason": {
+                          "maxLength": 100,
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "model": {
+                          "maxLength": 100,
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
                     }
                   }
                 }
@@ -9242,6 +9757,10 @@
                           "maxLength": 120,
                           "type": "string"
                         },
+                        "company": {
+                          "maxLength": 120,
+                          "type": "string"
+                        },
                         "card": {
                           "additionalProperties": false,
                           "type": "object",
@@ -9755,6 +10274,10 @@
                               "type": "string"
                             },
                             "topic": {
+                              "maxLength": 120,
+                              "type": "string"
+                            },
+                            "company": {
                               "maxLength": 120,
                               "type": "string"
                             },
@@ -10537,6 +11060,12 @@
                     "format": "uri",
                     "pattern": "^https?://",
                     "type": "string"
+                  },
+                  "requestId": {
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "type": "string"
                   }
                 }
               }
@@ -10579,7 +11108,8 @@
                     "prototypeUrl",
                     "status",
                     "createdAt",
-                    "decidedAt"
+                    "decidedAt",
+                    "milestoneConfirmed"
                   ],
                   "properties": {
                     "id": {
@@ -10654,6 +11184,9 @@
                       "maxLength": 4000,
                       "type": "string",
                       "nullable": true
+                    },
+                    "milestoneConfirmed": {
+                      "type": "boolean"
                     }
                   }
                 }
@@ -10915,7 +11448,8 @@
                           "prototypeUrl",
                           "status",
                           "createdAt",
-                          "decidedAt"
+                          "decidedAt",
+                          "milestoneConfirmed"
                         ],
                         "properties": {
                           "id": {
@@ -10990,6 +11524,9 @@
                             "maxLength": 4000,
                             "type": "string",
                             "nullable": true
+                          },
+                          "milestoneConfirmed": {
+                            "type": "boolean"
                           }
                         }
                       }
@@ -11243,7 +11780,8 @@
                           "prototypeUrl",
                           "status",
                           "createdAt",
-                          "decidedAt"
+                          "decidedAt",
+                          "milestoneConfirmed"
                         ],
                         "properties": {
                           "id": {
@@ -11318,6 +11856,9 @@
                             "maxLength": 4000,
                             "type": "string",
                             "nullable": true
+                          },
+                          "milestoneConfirmed": {
+                            "type": "boolean"
                           }
                         }
                       }
@@ -11607,7 +12148,8 @@
                     "prototypeUrl",
                     "status",
                     "createdAt",
-                    "decidedAt"
+                    "decidedAt",
+                    "milestoneConfirmed"
                   ],
                   "properties": {
                     "id": {
@@ -11682,6 +12224,9 @@
                       "maxLength": 4000,
                       "type": "string",
                       "nullable": true
+                    },
+                    "milestoneConfirmed": {
+                      "type": "boolean"
                     }
                   }
                 }

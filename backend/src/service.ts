@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { emptyCard, type Card, type CardField, type Task, type PublishedTask, type ProposalInput, type Team, type MilestoneInput } from './contracts.js';
+import { emptyCard, type CardField, type Task, type PublishedTask, type Proposal, type ProposalInput, type Team, type MilestoneInput, type CreateTaskInput, type EditTaskInput } from './contracts.js';
 import { calculateRating } from './rating.js';
 import { ApiError, conflict, notFound } from './errors.js';
-import { Store } from './store.js';
+import { Store, type StoredProposal } from './store.js';
 
 export const BUSINESSES = [{ id: 'business-demo', name: 'Demo Business' }];
 const now = () => new Date().toISOString();
@@ -28,22 +28,31 @@ export class Service {
   version(task: Task, version: number) {
     if (task.version !== version) throw conflict('Карточка изменилась. Загрузите текущую версию и повторите действие.');
   }
-  createTask(businessId: string | undefined, input: { description: string; industry: string; topic?: string }, id: string = randomUUID()) {
-    const owner = this.business(businessId); const timestamp = now();
-    const card = { ...emptyCard(), context: input.description.trim().slice(0, 4000) };
-    return this.store.save('tasks', {
-      id, businessId: owner, description: input.description.trim(), industry: input.industry.trim(), topic: (input.topic ?? input.industry).trim(),
-      card, humanEditedFields: [], version: 1, confirmedVersion: null, status: 'draft', hasUnpublishedChanges: true,
-      rating: calculateRating(card, false), published: null, createdAt: timestamp, updatedAt: timestamp,
+  createTask(businessId: string | undefined, input: CreateTaskInput, id: string = randomUUID()) {
+    const owner = this.business(businessId);
+    const normalized = {
+      description: input.description.trim(), industry: input.industry.trim(), topic: (input.topic ?? input.industry).trim(),
+      ...(input.company !== undefined ? { company: input.company.trim() } : {}),
+    };
+    return this.store.idempotent(['create-task', owner], input.requestId, normalized, () => {
+      const timestamp = now();
+      const card = { ...emptyCard(), context: normalized.description.slice(0, 4000) };
+      return this.store.save('tasks', {
+        id, businessId: owner, ...normalized,
+        card, humanEditedFields: [], version: 1, confirmedVersion: null, status: 'draft', hasUnpublishedChanges: true,
+        rating: calculateRating(card, false), published: null, createdAt: timestamp, updatedAt: timestamp,
+      });
     });
   }
-  editTask(id: string, owner: string | undefined, input: { version: number; card?: Partial<Card>; industry?: string; topic?: string }, humanFields: CardField[] = Object.keys(input.card ?? {}) as CardField[]) {
+  editTask(id: string, owner: string | undefined, input: EditTaskInput, humanFields: CardField[] = Object.keys(input.card ?? {}) as CardField[]) {
     return this.store.transaction(() => {
       const task = this.ownedTask(id, owner); this.version(task, input.version);
       task.card = { ...task.card, ...Object.fromEntries(Object.entries(input.card ?? {}).map(([key, value]) => [key, value.trim()])) };
       task.humanEditedFields = [...new Set([...task.humanEditedFields, ...humanFields])];
       if (input.industry !== undefined) task.industry = input.industry.trim();
       if (input.topic !== undefined) task.topic = input.topic.trim();
+      if (input.company !== undefined) task.company = input.company.trim();
+      if (input.description !== undefined) task.description = input.description.trim();
       task.version++; task.confirmedVersion = null; task.status = 'draft'; task.hasUnpublishedChanges = true;
       task.rating = calculateRating(task.card, false); task.updatedAt = now();
       return this.store.save('tasks', task);
@@ -65,6 +74,7 @@ export class Service {
       const timestamp = now();
       task.published = {
         id: task.id, businessId: task.businessId, industry: task.industry, topic: task.topic, card: { ...task.card },
+        ...(task.company !== undefined ? { company: task.company } : {}),
         version: task.version, rating: calculateRating(task.card, true), publishedAt: task.published?.publishedAt ?? timestamp, updatedAt: timestamp,
       };
       task.status = 'published'; task.hasUnpublishedChanges = false; task.updatedAt = timestamp;
@@ -85,18 +95,24 @@ export class Service {
   }
   submitProposal(taskId: string, teamId: string | undefined, input: ProposalInput, id: string = randomUUID()) {
     this.publishedTask(taskId); const team = this.team(teamId);
-    return this.store.save('proposals', { id, taskId, teamId: team.id, ...input, status: 'pending', createdAt: now(), decidedAt: null });
+    const normalized = { idea: input.idea.trim(), plan: input.plan.trim(), timeline: input.timeline.trim(), prototypeUrl: input.prototypeUrl.trim() };
+    return this.store.idempotent(['submit-proposal', team.id, taskId], input.requestId, normalized, () =>
+      this.withProgress([this.store.save('proposals', { id, taskId, teamId: team.id, ...normalized, status: 'pending', createdAt: now(), decidedAt: null })])[0]!);
+  }
+  private withProgress(proposals: StoredProposal[]): Proposal[] {
+    const confirmed = new Set(this.store.all('milestones').map(milestone => milestone.proposalId));
+    return proposals.map(proposal => ({ ...proposal, milestoneConfirmed: confirmed.has(proposal.id) }));
   }
   proposals(taskId: string, owner: string | undefined) {
-    this.ownedTask(taskId, owner); return this.store.all('proposals').filter(proposal => proposal.taskId === taskId);
+    this.ownedTask(taskId, owner); return this.withProgress(this.store.all('proposals').filter(proposal => proposal.taskId === taskId));
   }
-  teamProposals(teamId: string | undefined) { const team = this.team(teamId); return this.store.all('proposals').filter(p => p.teamId === team.id); }
+  teamProposals(teamId: string | undefined) { const team = this.team(teamId); return this.withProgress(this.store.all('proposals').filter(p => p.teamId === team.id)); }
   decide(id: string, owner: string | undefined, decision: 'selected' | 'rejected') {
     return this.store.transaction(() => {
       const proposal = this.store.get('proposals', id); if (!proposal) throw notFound();
       this.ownedTask(proposal.taskId, owner);
       if (decision === 'rejected' && this.store.all('milestones').some(m => m.proposalId === id)) throw conflict('У команды уже есть подтверждённый прогресс по этому отклику.');
-      proposal.status = decision; proposal.decidedAt = now(); return this.store.save('proposals', proposal);
+      proposal.status = decision; proposal.decidedAt = now(); return this.withProgress([this.store.save('proposals', proposal)])[0]!;
     });
   }
   confirmProgress(id: string, owner: string | undefined, input: MilestoneInput) {

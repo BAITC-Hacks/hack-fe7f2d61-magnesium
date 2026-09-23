@@ -2,8 +2,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Task, Team, Proposal, Milestone } from './contracts.js';
+import { conflict } from './errors.js';
 
-type Tables = { tasks: Task; teams: Team; proposals: Proposal; milestones: Milestone };
+export type StoredProposal = Omit<Proposal, 'milestoneConfirmed'>;
+type Tables = { tasks: Task; teams: Team; proposals: StoredProposal; milestones: Milestone };
 
 export class Store {
   readonly db: DatabaseSync;
@@ -30,6 +32,22 @@ export class Store {
   save<K extends keyof Tables>(table: K, item: Tables[K]): Tables[K] {
     this.db.prepare(`INSERT INTO ${table}(id, body) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body`).run(item.id, JSON.stringify(item));
     return item;
+  }
+  idempotent<T>(scope: string[], requestId: string | undefined, normalizedInput: unknown, create: () => T): T {
+    if (requestId === undefined) return create();
+    const key = `idempotency:${JSON.stringify([...scope, requestId])}`;
+    const fingerprint = JSON.stringify(normalizedInput);
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get(key) as { value: string } | undefined;
+      if (row) {
+        const saved = JSON.parse(row.value) as { fingerprint: string; response: T };
+        if (saved.fingerprint !== fingerprint) throw conflict('Этот requestId уже использован с другими данными.');
+        return saved.response;
+      }
+      const response = create();
+      this.db.prepare('INSERT INTO metadata(key, value) VALUES (?, ?)').run(key, JSON.stringify({ fingerprint, response }));
+      return response;
+    });
   }
   transaction<T>(fn: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
