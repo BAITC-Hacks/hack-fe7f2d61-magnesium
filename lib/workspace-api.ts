@@ -43,6 +43,7 @@ export interface ServerWorkspace {
   catalog: BusinessTask[];
   drafts: BusinessTask[];
   proposals: Proposal[];
+  teamProposals: Proposal[];
   teams: Team[];
   aiConfigured: boolean;
 }
@@ -74,6 +75,8 @@ function toTask(task: Task | PublishedTask): BusinessTask {
       (value, index, items) => items.indexOf(value) === index,
     ),
     serverVersion: task.version,
+    publishedScore: draft ? task.published?.rating.score : task.rating.score,
+    hasUnpublishedChanges: draft ? task.hasUnpublishedChanges : false,
   };
 }
 function toCard(task: BusinessTask): Card {
@@ -117,7 +120,7 @@ export function createWorkspaceApi(
   >();
   const creations = new Map<string, CreateTaskInput>();
   return {
-    async load(): Promise<ServerWorkspace> {
+    async load(teamId?: string): Promise<ServerWorkspace> {
       const [catalog, drafts, teams, health] = await Promise.all([
         business.catalog(),
         business.businessTasks(),
@@ -127,10 +130,19 @@ export function createWorkspaceApi(
       const responses = await Promise.all(
         drafts.items.map((task) => business.proposals(task.id)),
       );
+      const selectedTeamId =
+        teams.items.find((team) => team.id === teamId)?.id ??
+        teams.items[0]?.id;
+      const own = selectedTeamId
+        ? await createSkillArenaClient(base, {
+            teamId: selectedTeamId,
+          }).myProposals()
+        : { items: [] };
       return {
         catalog: catalog.items.map(toTask),
         drafts: drafts.items.map(toTask),
         proposals: responses.flatMap((list) => list.items.map(toProposal)),
+        teamProposals: own.items.map(toProposal),
         teams: teams.items.map((team) => ({
           ...team,
           initials: team.name
@@ -141,6 +153,17 @@ export function createWorkspaceApi(
         })),
         aiConfigured: health.aiConfigured,
       };
+    },
+    async recover(input: BusinessTask): Promise<BusinessTask> {
+      const id =
+        pending.get(input.id)?.draft.id ??
+        uncertain.get(input.id)?.id ??
+        input.id;
+      const latest = await business.draft(id);
+      pending.delete(input.id);
+      uncertain.delete(input.id);
+      creations.delete(input.id);
+      return toTask(latest);
     },
     async save(input: BusinessTask, publish: boolean): Promise<BusinessTask> {
       let cached = pending.get(input.id);
@@ -241,7 +264,12 @@ export function createWorkspaceApi(
       const published = await business.publish(id, confirmed.version);
       pending.delete(input.id);
       creations.delete(input.id);
-      return toTask({ ...confirmed, published });
+      return toTask({
+        ...confirmed,
+        published,
+        hasUnpublishedChanges: false,
+        status: "published",
+      });
     },
     async submit(proposal: Proposal): Promise<Proposal> {
       const student = createSkillArenaClient(base, { teamId: proposal.teamId });

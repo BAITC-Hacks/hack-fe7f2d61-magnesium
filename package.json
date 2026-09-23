@@ -13,7 +13,7 @@
     "dev:frontend": "next dev --hostname 127.0.0.1",
     "dev:backend": "npm run dev --prefix backend",
     "setup": "pnpm install --frozen-lockfile && npm ci --prefix backend",
-    "test:integration": "backend/node_modules/.bin/tsx --test tests/integration/*.test.ts",
+    "test:integration": "node --import ./backend/node_modules/tsx/dist/loader.mjs --test tests/integration/*.test.ts",
     "check": "pnpm test && pnpm typecheck && npm run check --prefix backend && npm test --prefix backend && pnpm test:integration",
     "build:all": "npm run build --prefix backend && pnpm build"
   },

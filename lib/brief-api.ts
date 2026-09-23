@@ -1,4 +1,5 @@
 import { fields, type BusinessTask, type FieldKey } from "./domain.ts";
+import type { AiMeta } from "../backend/src/contracts.ts";
 
 export interface ClarifyingQuestion {
   field: FieldKey;
@@ -7,6 +8,17 @@ export interface ClarifyingQuestion {
 export interface Analysis {
   questions: ClarifyingQuestion[];
   source: "demo" | "api";
+  ai: AiMeta;
+}
+export type AiStatus = "idle" | "loading" | "live" | "fallback" | "error";
+export function aiFallbackMessage(reason: string | null) {
+  if (reason === "missing_api_key")
+    return "Ключ AI не настроен на сервере. Используются демо-вопросы.";
+  if (reason === "manual_demo")
+    return "Вы выбрали демо-вопросы. Ответ модели не используется.";
+  if (reason === "timeout")
+    return "Модель не ответила вовремя. Сервер вернул демо-вопросы.";
+  return "Модель не вернула корректный ответ. Сервер вернул демо-вопросы.";
 }
 export const analysisPrompt = `Ты помогаешь бизнесу уточнить практическую задачу для студентов. Вход: {brief, fields}. Определи недостающие сведения и верни JSON {"questions":[{"field":"data","question":"..."}]}. Нужно от 3 до 9 разных уместных вопросов. Допустимые field: context, need, data, outcome, criteria, constraints, users, contact, interaction. Не добавляй факты и не заполняй поля за пользователя. Не выбирай команду. Не используй чувствительные признаки участников. Если всё заполнено, спроси о проверке критериев, данных и ограничений.`;
 
@@ -67,10 +79,13 @@ export function demoAnalysis(
         question: `Проверьте и уточните поле «${fields.find((field) => field.key === key)!.label}»: сведения актуальны и доступны команде?`,
       });
   }
-  return { questions, source: "demo" };
+  return {
+    questions,
+    source: "demo",
+    ai: { mode: "fallback", reason: "manual_demo", model: null },
+  };
 }
 
-export const apiConfigured = true;
 export async function analyzeBrief(
   task: BusinessTask,
   signal?: AbortSignal,
@@ -98,9 +113,21 @@ export async function analyzeBrief(
         `AI-сервис недоступен (HTTP ${response.status}). Повторите запрос или продолжите в демо-режиме.`,
       );
     const data = await response.json();
+    const questions = parseAnalysis(data);
+    if (
+      !data.ai ||
+      !["live", "fallback"].includes(data.ai.mode) ||
+      (data.ai.reason !== null && typeof data.ai.reason !== "string") ||
+      (data.ai.model !== null && typeof data.ai.model !== "string") ||
+      data.source !== (data.ai.mode === "live" ? "api" : "demo")
+    )
+      throw new Error(
+        "AI вернул некорректный статус ответа. Повторите запрос или выберите демо-вопросы.",
+      );
     return {
-      questions: parseAnalysis(data),
-      source: data.source === "demo" ? "demo" : "api",
+      questions,
+      source: data.source,
+      ai: data.ai,
     };
   } catch (error) {
     if (signal?.aborted) throw new Error("Запрос отменён.");

@@ -1,14 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { databaseFixture } from './database-fixture.js';
 import { join } from 'node:path';
 import { createApp } from '../src/app.js';
 
 test('demo has five drafts, cards, teams and proposals; restarting does not duplicate or overwrite edits', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'skillarena-seed-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { dir, track } = databaseFixture(t, 'skillarena-seed-');
   const options = { databasePath: join(dir, 'demo.sqlite'), seed: true, ai: { apiKey: '' } };
-  const app = await createApp(options);
+  const app = track(await createApp(options));
   const headers = { 'x-business-id': 'business-demo' };
   const catalog = (await app.inject('/api/tasks')).json().items;
   assert.equal(catalog.length, 5);
@@ -22,7 +21,7 @@ test('demo has five drafts, cards, teams and proposals; restarting does not dupl
   const first = tasks[0];
   await app.inject({ method: 'PATCH', url: `/api/tasks/${first.id}`, headers, payload: { version: first.version, card: { title: 'Изменено человеком' } } });
   await app.close();
-  const second = await createApp(options); t.after(() => second.close());
+  const second = track(await createApp(options));
   assert.equal((await second.inject({ url: '/api/business/tasks', headers })).json().items.length, 10);
   assert.equal((await second.inject({ url: `/api/business/tasks/${first.id}`, headers })).json().card.title, 'Изменено человеком');
 });

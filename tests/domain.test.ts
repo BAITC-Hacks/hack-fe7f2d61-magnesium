@@ -15,6 +15,7 @@ import {
 } from "../lib/domain.ts";
 import { drafts, initialWorkspace, teams } from "../lib/fixtures.ts";
 import { analyzeBrief, demoAnalysis, parseAnalysis } from "../lib/brief-api.ts";
+import { mergeTaskEdits, taskFingerprint } from "../lib/editor.ts";
 
 test("rubric has exactly 100 points; blank/unconfirmed content earns nothing", () => {
   assert.equal(
@@ -28,14 +29,14 @@ test("rubric has exactly 100 points; blank/unconfirmed content earns nothing", (
   assert.equal(scoreTask({ ...task, data: "   " }).total, 80);
 });
 
-test("editing removes only the changed field's points until reconfirmed", () => {
+test("editing invalidates confirmation of the entire version until reconfirmed", () => {
   const task = initialWorkspace().tasks[0];
   const edited = editField(
     task,
     "criteria",
     "80% пользователей выполняют сценарий за 2 минуты.",
   );
-  assert.equal(scoreTask(edited).total, 85);
+  assert.equal(scoreTask(edited).total, 0);
   assert.equal(scoreTask(confirmFields(edited)).total, 100);
   assert.equal(scoreTask(task).total, 100);
 });
@@ -178,17 +179,70 @@ test("API adapter sends the agreed contract and labels a valid live response", a
         fields.map((field) => field.key).sort(),
       );
       assert.ok(options.signal);
-      return Response.json({ questions: demoAnalysis(task).questions });
+      return Response.json({
+        questions: demoAnalysis(task).questions,
+        source: "api",
+        ai: { mode: "live", reason: null, model: "test-model" },
+      });
     },
   );
   try {
     const result = await analyzeBrief(task);
     assert.equal(result.source, "api");
+    assert.equal(result.ai.mode, "live");
     assert.equal(result.questions.length, 3);
     assert.equal(mockedFetch.mock.callCount(), 1);
   } finally {
     if (original === undefined) delete process.env.NEXT_PUBLIC_BRIEF_API_URL;
     else process.env.NEXT_PUBLIC_BRIEF_API_URL = original;
+  }
+});
+
+test("conflict merge preserves independent edits and exposes overlapping or cleared fields", () => {
+  const base = { ...initialWorkspace().tasks[0], serverVersion: 1 };
+  const local = {
+    ...base,
+    title: "Мой заголовок",
+    need: "",
+    data: "Мои данные",
+  };
+  const remote = {
+    ...base,
+    serverVersion: 2,
+    title: "Другой заголовок",
+    company: "Новая компания",
+    need: "Новая потребность",
+  };
+  const { merged, conflicts } = mergeTaskEdits(base, local, remote);
+  assert.deepEqual(conflicts, ["title", "need"]);
+  assert.equal(merged.title, local.title);
+  assert.equal(merged.company, remote.company);
+  assert.equal(merged.need, "");
+  assert.equal(merged.data, local.data);
+  assert.equal(merged.serverVersion, 2);
+  assert.equal(scoreTask(merged).total, 0);
+  assert.equal(
+    taskFingerprint(base),
+    taskFingerprint({ ...base, publishedScore: 10 }),
+  );
+  assert.notEqual(taskFingerprint(base), taskFingerprint(local));
+  assert.deepEqual(mergeTaskEdits(base, local, local).conflicts, []);
+});
+
+test("AI metadata distinguishes fallback and rejects ambiguous or contradictory success", async (t) => {
+  const task = initialWorkspace().tasks[0];
+  const response = demoAnalysis(task);
+  const fetch = t.mock.method(globalThis, "fetch", async () =>
+    Response.json(response),
+  );
+  assert.equal((await analyzeBrief(task)).ai.mode, "fallback");
+  for (const invalid of [
+    { questions: response.questions },
+    { ...response, source: "api" },
+    { ...response, ai: { mode: "live", reason: null } },
+  ]) {
+    fetch.mock.mockImplementation(async () => Response.json(invalid));
+    await assert.rejects(analyzeBrief(task), /статус/);
   }
 });
 

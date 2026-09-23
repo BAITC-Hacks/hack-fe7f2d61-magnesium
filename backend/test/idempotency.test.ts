@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { databaseFixture } from './database-fixture.js';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -14,10 +13,9 @@ const taskInput = { requestId: 'retry-create-task', description: 'Нужна а�
 const proposalInput = { requestId: 'retry-proposal', idea: 'Изучить когорты', plan: 'Проверить гипотезы', timeline: 'Две недели', prototypeUrl: 'https://example.test/prototype' };
 
 test('task request IDs replay the original response after restart and reject changed normalized payloads', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'skillarena-idempotency-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { dir, track } = databaseFixture(t, 'skillarena-idempotency-');
   const path = join(dir, 'test.sqlite');
-  const first = await createApp({ databasePath: path, seed: false });
-  t.after(() => first.close());
+  const first = track(await createApp({ databasePath: path, seed: false }));
   const created = await first.inject({ method: 'POST', url: '/api/tasks', headers: business, payload: taskInput });
   assert.equal(created.statusCode, 201, created.body);
   const original = created.json();
@@ -27,7 +25,7 @@ test('task request IDs replay the original response after restart and reject cha
   assert.deepEqual(repeated.json(), original);
   await first.inject({ method: 'PATCH', url: `/api/tasks/${original.id}`, headers: business, payload: { version: original.version, description: 'Уточнённое описание' } });
   await first.close();
-  const second = await createApp({ databasePath: path, seed: false }); t.after(() => second.close());
+  const second = track(await createApp({ databasePath: path, seed: false }));
   const replayed = await second.inject({ method: 'POST', url: '/api/tasks', headers: business, payload: taskInput });
   assert.equal(replayed.statusCode, 201, replayed.body);
   assert.deepEqual(replayed.json(), original);
@@ -39,14 +37,14 @@ test('task request IDs replay the original response after restart and reject cha
   const tasks = (await second.inject({ url: '/api/business/tasks', headers: business })).json().items;
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].description, 'Уточнённое описание');
-  const store = new Store(path); t.after(() => store.close());
+  const store = track(new Store(path));
   assert.equal('requestId' in store.all('tasks')[0]!, false);
 });
 
 test('proposal request IDs are scoped by team and task and replay original results without changing confirmed progress', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'skillarena-proposal-retry-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { dir, track } = databaseFixture(t, 'skillarena-proposal-retry-');
   const path = join(dir, 'test.sqlite');
-  const first = await createApp({ databasePath: path, seed: true }); t.after(() => first.close());
+  const first = track(await createApp({ databasePath: path, seed: true }));
   const teams = (await first.inject('/api/teams')).json().items;
   const tasks = (await first.inject('/api/tasks')).json().items;
   const taskId = tasks[0].id;
@@ -67,14 +65,14 @@ test('proposal request IDs are scoped by team and task and replay original resul
   await first.inject({ method: 'PATCH', url: `/api/proposals/${original.id}/decision`, headers: business, payload: { decision: 'selected' } });
   await first.inject({ method: 'POST', url: `/api/proposals/${original.id}/progress`, headers: business, payload: { key: 'research', description: 'Исследование принято', evidenceUrl: 'https://example.test/report' } });
   await first.close();
-  const second = await createApp({ databasePath: path, seed: false }); t.after(() => second.close());
+  const second = track(await createApp({ databasePath: path, seed: false }));
   const replayed = await second.inject({ method: 'POST', url: `/api/tasks/${taskId}/proposals`, headers: teamHeaders, payload: proposalInput });
   assert.equal(replayed.statusCode, 201, replayed.body);
   assert.deepEqual(replayed.json(), original);
   const proposals = (await second.inject({ url: `/api/tasks/${taskId}/proposals`, headers: business })).json().items;
   assert.equal(proposals.length, initialCount + 2);
   assert.equal(proposals.find((item: { id: string }) => item.id === original.id).milestoneConfirmed, true);
-  const store = new Store(path); t.after(() => store.close());
+  const store = track(new Store(path));
   assert.equal('requestId' in store.get('proposals', original.id)!, false);
 });
 
@@ -114,10 +112,10 @@ test('browser retries after a real lost POST response create one task and one pr
 });
 
 test('failed idempotency persistence rolls back creation so a later retry is safe', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'skillarena-atomic-retry-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { dir, track } = databaseFixture(t, 'skillarena-atomic-retry-');
   const path = join(dir, 'test.sqlite');
-  const app = await createApp({ databasePath: path, seed: false }); t.after(() => app.close());
-  const store = new Store(path); t.after(() => store.close());
+  const app = track(await createApp({ databasePath: path, seed: false }));
+  const store = track(new Store(path));
   store.db.exec("CREATE TRIGGER fail_idempotency BEFORE INSERT ON metadata WHEN NEW.key LIKE 'idempotency:%' BEGIN SELECT RAISE(ABORT, 'Simulated persistence failure'); END;");
   const failed = await app.inject({ method: 'POST', url: '/api/tasks', headers: business, payload: taskInput });
   assert.equal(failed.statusCode, 500, failed.body);

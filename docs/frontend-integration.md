@@ -9,7 +9,10 @@
 - Создание задачи и отклика принимает необязательный `requestId`: повтор того же запроса возвращает исходный результат без дублей, даже после перезапуска backend. При изменении данных с тем же ключом сервер возвращает 409. Frontend сохраняет ключ на время жизни формы.
 - Ответы предложений содержат `milestoneConfirmed`, вычисляемый из подтверждённых этапов. XP берётся из `/api/teams`, а не из состояния браузера.
 - Методы TypeScript-клиента принимают последний аргумент `{signal?, timeoutMs?}`; общие значения можно передать третьим аргументом `createSkillArenaClient`. Таймаут по умолчанию 20 секунд.
-- При конфликте версии редактор сохраняет введённые данные и показывает ошибку. Скопируйте нужные изменения, вернитесь в кабинет бизнеса, обновите страницу и заново откройте актуальный черновик.
+- При конфликте версии редактор сохраняет введённые данные. «Загрузить новую версию и сравнить» читает актуальный черновик, объединяет независимые правки и показывает оба варианта пересекающихся полей. Сохранение блокируется до выбора каждого варианта; публикация требует повторного подтверждения. Новая конфликтующая запись снова вернёт 409.
+- Адаптер сохраняет `publishedScore` и `hasUnpublishedChanges`. Рейтинг «После подтверждения» вычисляется по заполненным полям; подтверждение сбрасывается для всей изменённой версии. Опубликованный рейтинг не меняется при сохранении черновика.
+- `load(teamId)` отдельно получает отклики выбранной команды через `myProposals()`. В `sessionStorage` хранится только ID демо-команды; карточки, отклики и XP остаются на сервере.
+- AI-адаптер проверяет согласованность `source` и `ai.mode`, сохраняет `ai.reason`/`ai.model`. Заголовок «ответ получен» появляется только после ответа с `mode: live`. Серверный fallback и ручные демо-вопросы обозначаются явно.
 
 Ниже — низкоуровневый API для отдельных клиентов и прямого подключения.
 
@@ -31,30 +34,37 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:3001
 Готовый клиент: `backend/src/client.ts`. Его можно импортировать из Next.js в этом репозитории; он использует обычный браузерный `fetch` и только type-import для контрактов. Пути ниже нужно адаптировать к расположению frontend. Установите зависимости backend командой `npm ci --prefix backend`, чтобы TypeScript мог разрешить типы контрактов.
 
 ```ts
-import { createSkillArenaClient, SkillArenaApiError } from '../backend/src/client';
+import {
+  createSkillArenaClient,
+  SkillArenaApiError,
+} from "../backend/src/client";
 
-const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:3001';
-const business = createSkillArenaClient(base, { businessId: 'business-demo' });
+const base = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3001";
+const business = createSkillArenaClient(base, { businessId: "business-demo" });
 const publicApi = createSkillArenaClient(base);
 
 let task = await business.createTask({
-  description: 'Клиенты редко возвращаются после первого заказа.',
-  industry: 'Retail', topic: 'Analytics',
+  description: "Клиенты редко возвращаются после первого заказа.",
+  industry: "Retail",
+  topic: "Analytics",
 });
 const analysis = await business.clarify(task.id, task.version);
 // Показать analysis.questions; их field привязывает ответ к полю карточки.
 // Показать analysis.ai.mode: live / fallback.
 
 const generated = await business.generateCard(task.id, task.version, [
-  { field: 'data', answer: 'Обезличенный CSV заказов за три месяца' },
-  { field: 'users', answer: 'Покупатели магазина' },
-  { field: 'successCriteria', answer: 'Три сегмента с причинами оттока' },
+  { field: "data", answer: "Обезличенный CSV заказов за три месяца" },
+  { field: "users", answer: "Покупатели магазина" },
+  { field: "successCriteria", answer: "Три сегмента с причинами оттока" },
 ]);
 task = generated.task; // ОБЯЗАТЕЛЬНО сохранить новую version.
 
 task = await business.editTask(task.id, {
   version: task.version,
-  card: { title: 'Причины оттока покупателей', need: 'Повысить повторные покупки' },
+  card: {
+    title: "Причины оттока покупателей",
+    need: "Повысить повторные покупки",
+  },
 });
 // До подтверждения показывать rating.previewScore как «после подтверждения».
 // Для редактора использовать task.card, rating.breakdown и rating.missingFields.
@@ -67,19 +77,19 @@ const { items: catalog } = await publicApi.catalog();
 const { items: teams } = await publicApi.teams();
 const student = createSkillArenaClient(base, { teamId: teams[0].id });
 const proposal = await student.submitProposal(task.id, {
-  idea: 'Сравнить когорты клиентов',
-  plan: 'Очистить данные → рассчитать retention → собрать отчёт',
-  timeline: 'Две недели',
-  prototypeUrl: 'https://example.test/prototype',
+  idea: "Сравнить когорты клиентов",
+  plan: "Очистить данные → рассчитать retention → собрать отчёт",
+  timeline: "Две недели",
+  prototypeUrl: "https://example.test/prototype",
 });
 
 const { items: proposals } = await business.proposals(task.id);
 // Кнопки бизнес-пользователя, никогда не вызывать автоматически:
-await business.decide(proposal.id, 'selected'); // либо 'rejected'
+await business.decide(proposal.id, "selected"); // либо 'rejected'
 await business.confirmProgress(proposal.id, {
-  key: 'first-report',
-  description: 'Когортный отчёт проверен представителем бизнеса',
-  evidenceUrl: 'https://example.test/report',
+  key: "first-report",
+  description: "Когортный отчёт проверен представителем бизнеса",
+  evidenceUrl: "https://example.test/report",
 });
 ```
 

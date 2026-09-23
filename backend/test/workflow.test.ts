@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { databaseFixture } from './database-fixture.js';
 import { join } from 'node:path';
 import { createApp } from '../src/app.js';
 import { Store } from '../src/store.js';
@@ -117,13 +116,13 @@ test('invalid identity, unknown fields and unsafe prototype links are rejected',
 });
 
 test('SQLite persists drafts, proposals and progress across app restarts', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'skillarena-test-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const path = join(dir, 'test.sqlite'); const first = await setup(path); const task = await publish(first); const student = await team(first);
+  const { dir, track } = databaseFixture(t, 'skillarena-test-');
+  const path = join(dir, 'test.sqlite'); const first = track(await setup(path)); const task = await publish(first); const student = await team(first);
   const submission = (await first.inject({ method: 'POST', url: `/api/tasks/${task.id}/proposals`, headers: { 'x-team-id': student.id }, payload: proposal })).json();
   await first.inject({ method: 'PATCH', url: `/api/proposals/${submission.id}/decision`, headers: business, payload: { decision: 'selected' } });
   await first.inject({ method: 'POST', url: `/api/proposals/${submission.id}/progress`, headers: business, payload: { key: 'm1', description: 'Подтверждённый результат', evidenceUrl: 'https://example.test/proof' } });
   await first.close();
-  const second = await setup(path); t.after(() => second.close());
+  const second = track(await setup(path));
   assert.equal((await second.inject(`/api/tasks/${task.id}`)).json().rating.score, 20);
   assert.equal((await second.inject('/api/teams')).json().items[0].xp, 100);
   assert.equal((await second.inject({ url: `/api/tasks/${task.id}/proposals`, headers: business })).json().items[0].status, 'selected');
@@ -161,9 +160,8 @@ test('company and updated brief persist while edits invalidate confirmation and 
 });
 
 test('proposal progress flags are derived from milestones, including old and stale stored records', async t => {
-  const dir = mkdtempSync(join(tmpdir(), 'skillarena-progress-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const path = join(dir, 'test.sqlite'); const first = await setup(path);
-  t.after(() => first.close());
+  const { dir, track } = databaseFixture(t, 'skillarena-progress-');
+  const path = join(dir, 'test.sqlite'); const first = track(await setup(path));
   const task = await publish(first); const student = await team(first);
   const submitted = await first.inject({ method: 'POST', url: `/api/tasks/${task.id}/proposals`, headers: { 'x-team-id': student.id }, payload: proposal });
   assert.equal(submitted.json().milestoneConfirmed, false);
@@ -176,7 +174,7 @@ test('proposal progress flags are derived from milestones, including old and sta
   store.db.prepare("UPDATE proposals SET body = json_remove(body, '$.milestoneConfirmed') WHERE id = ?").run(submission.id);
   store.db.prepare("UPDATE proposals SET body = json_set(body, '$.milestoneConfirmed', json('true')) WHERE id = ?").run(second.json().id);
   store.close();
-  const restarted = await setup(path); t.after(() => restarted.close());
+  const restarted = track(await setup(path));
   for (const request of [
     { url: `/api/tasks/${task.id}/proposals`, headers: business },
     { url: '/api/team/proposals', headers: { 'x-team-id': student.id } },

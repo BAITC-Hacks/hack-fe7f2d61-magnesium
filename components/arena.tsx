@@ -35,6 +35,8 @@ import { Brand, EmptyState, ReadinessBadge, TaskArt } from "./ui";
 import { TaskBuilder } from "./task-builder";
 import { TaskDetail } from "./task-detail";
 import { BusinessWorkspace, TeamWorkspace } from "./proposals";
+import { DiscardDialog } from "./discard-dialog";
+import type { AiStatus } from "@/lib/brief-api";
 
 type View = "catalog" | "builder" | "detail" | "business" | "team";
 const emptyWorkspace: ServerWorkspace = {
@@ -42,6 +44,7 @@ const emptyWorkspace: ServerWorkspace = {
   drafts: [],
   teams: [],
   proposals: [],
+  teamProposals: [],
   aiConfigured: false,
 };
 
@@ -59,11 +62,35 @@ export default function Arena() {
   const [toast, setToast] = useState("");
   const [storageError, setStorageError] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<{
+    view: View;
+    role?: "business" | "student";
+  } | null>(null);
+  const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
+  useEffect(() => {
+    try {
+      setSelectedTeamId(sessionStorage.getItem("skillarena-demo-team") ?? "");
+    } catch {
+      /* Selection still works without browser storage. */
+    }
+  }, []);
+  function navigate(next: View, nextRole?: "business" | "student") {
+    if (view === "builder" && next !== "builder" && dirty) {
+      setPendingNavigation({ view: next, role: nextRole });
+      return false;
+    }
+    if (nextRole) setRole(nextRole);
+    setView(next);
+    return true;
+  }
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
     try {
-      const data = await api.load();
+      const data = await api.load(selectedTeamId);
       if (sequence === refreshSequence.current) {
         setWorkspace(data);
         setReady(true);
@@ -76,8 +103,10 @@ export default function Arena() {
             ? error.message
             : "Не удалось загрузить данные сервера.",
         );
+    } finally {
+      if (sequence === refreshSequence.current) setTeamLoading(false);
     }
-  }, [api]);
+  }, [api, selectedTeamId]);
   useEffect(() => {
     void refresh();
     const onFocus = () => {
@@ -154,12 +183,26 @@ export default function Arena() {
   }, [mobileMenu]);
 
   const task = workspace.catalog.find((task) => task.id === activeId);
-  const team = workspace.teams[0];
+  const team =
+    workspace.teams.find((item) => item.id === selectedTeamId) ??
+    workspace.teams[0];
+  const ownProposals = workspace.teamProposals.filter(
+    (proposal) => proposal.teamId === team?.id,
+  );
+  const visibleProposals = [
+    ...new Map(
+      [...workspace.proposals, ...ownProposals].map((proposal) => [
+        proposal.id,
+        proposal,
+      ]),
+    ).values(),
+  ];
   function openTask(id: string) {
     setActiveId(id);
     setView("detail");
   }
   function createTask() {
+    if (view === "builder") return;
     setRole("business");
     setEditing(undefined);
     setView("builder");
@@ -188,6 +231,7 @@ export default function Arena() {
       }));
     });
     setActiveId(saved!.id);
+    setDirty(false);
     setView(publish ? "detail" : "business");
     setToast(
       publish
@@ -204,7 +248,10 @@ export default function Arena() {
   ).length;
 
   return (
-    <fieldset className="arena-shell integration-fieldset" disabled={busy}>
+    <fieldset
+      className="arena-shell integration-fieldset"
+      disabled={busy || teamLoading}
+    >
       <a className="skip-link" href="#main">
         Перейти к содержимому
       </a>
@@ -212,7 +259,7 @@ export default function Arena() {
         <button
           className="brand-button"
           onClick={() => {
-            setView("catalog");
+            navigate("catalog");
             setMobileMenu(false);
           }}
           aria-label="SkillArena — каталог"
@@ -237,7 +284,7 @@ export default function Arena() {
                 ? "nav-item active"
                 : "nav-item"
             }
-            onClick={() => setView("catalog")}
+            onClick={() => navigate("catalog")}
           >
             <Compass size={19} />
             Каталог задач
@@ -246,8 +293,7 @@ export default function Arena() {
           <button
             className={view === "business" ? "nav-item active" : "nav-item"}
             onClick={() => {
-              setRole("business");
-              setView("business");
+              navigate("business", "business");
             }}
           >
             <BriefcaseBusiness size={18} />
@@ -257,8 +303,7 @@ export default function Arena() {
           <button
             className={view === "team" ? "nav-item active" : "nav-item"}
             onClick={() => {
-              setRole("student");
-              setView("team");
+              navigate("team", "student");
             }}
           >
             <Users size={18} />
@@ -290,6 +335,30 @@ export default function Arena() {
           <span className="manifesto-arrow">↗</span>
         </div>
         <div className="sidebar-bottom">
+          {role === "student" && team && (
+            <label className="demo-team-selector">
+              <span>Команда для демо</span>
+              <select
+                value={team.id}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  setTeamLoading(true);
+                  setSelectedTeamId(id);
+                  try {
+                    sessionStorage.setItem("skillarena-demo-team", id);
+                  } catch {
+                    /* Optional preference only. */
+                  }
+                }}
+              >
+                {workspace.teams.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="demo-status">
             <span className="status-dot" />
             <span>HackAlem · демо-пространство</span>
@@ -348,17 +417,30 @@ export default function Arena() {
             </strong>
           </div>
           <div className="topbar-right">
-            <span className="api-status">
+            <span className={`api-status ai-${aiStatus}`} role="status">
               <span className="status-dot" />
-              {workspace.aiConfigured ? "AI подключён" : "Демо AI"}
+              {aiStatus === "loading"
+                ? "AI отвечает…"
+                : aiStatus === "live"
+                  ? "AI · ответ получен"
+                  : aiStatus === "fallback"
+                    ? "Демо-вопросы"
+                    : aiStatus === "error"
+                      ? "Ошибка AI"
+                      : workspace.aiConfigured
+                        ? "AI · готов к запросу"
+                        : "AI · демо-режим"}
             </span>
             <div className="role-switch" aria-label="Роль для демонстрации">
               <button
                 className={role === "student" ? "selected" : ""}
                 onClick={() => {
-                  setRole("student");
-                  if (view === "business" || view === "builder")
-                    setView("catalog");
+                  navigate(
+                    view === "business" || view === "builder"
+                      ? "catalog"
+                      : view,
+                    "student",
+                  );
                 }}
               >
                 <Users size={14} />
@@ -414,7 +496,10 @@ export default function Arena() {
               existing={editing}
               onPublish={(task) => saveTask(task, true)}
               onSave={(task) => saveTask(task, false)}
-              onClose={() => setView("catalog")}
+              onClose={() => navigate("catalog")}
+              onDirtyChange={setDirty}
+              onAiStatus={setAiStatus}
+              onRecover={api.recover}
             />
           ) : view === "detail" && task ? (
             <TaskDetail
@@ -422,7 +507,7 @@ export default function Arena() {
               task={task}
               role={role}
               team={team}
-              proposals={workspace.proposals}
+              proposals={visibleProposals}
               onBack={() => setView("catalog")}
               onEdit={() => editTask(task)}
               onManage={() => setView("business")}
@@ -450,9 +535,10 @@ export default function Arena() {
             />
           ) : (
             <TeamWorkspace
+              team={team}
               teams={workspace.teams}
               tasks={workspace.catalog}
-              proposals={workspace.proposals}
+              proposals={ownProposals}
               onTask={openTask}
               onCatalog={() => setView("catalog")}
             />
@@ -465,6 +551,17 @@ export default function Arena() {
           </footer>
         </main>
       </div>
+      {pendingNavigation && (
+        <DiscardDialog
+          onKeep={() => setPendingNavigation(null)}
+          onDiscard={() => {
+            setDirty(false);
+            if (pendingNavigation.role) setRole(pendingNavigation.role);
+            setView(pendingNavigation.view);
+            setPendingNavigation(null);
+          }}
+        />
+      )}
       {toast && (
         <div className="toast" role="status">
           <CheckCircle2 size={19} />

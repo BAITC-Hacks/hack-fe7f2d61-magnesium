@@ -14,9 +14,10 @@ import {
 } from "lucide-react";
 import {
   analyzeBrief,
-  apiConfigured,
+  aiFallbackMessage,
   demoAnalysis,
   type Analysis,
+  type AiStatus,
 } from "@/lib/brief-api";
 import {
   confirmFields,
@@ -30,15 +31,34 @@ import {
 } from "@/lib/domain";
 import { drafts, retentionAnswers } from "@/lib/fixtures";
 import { RatingPanel } from "./ui";
+import { SkillArenaApiError } from "@/backend/src/client";
+import {
+  editableLabel,
+  mergeTaskEdits,
+  taskFingerprint,
+  type EditableKey,
+} from "@/lib/editor";
+import { useUnsavedChanges } from "./use-unsaved-changes";
 
 interface Props {
   existing?: BusinessTask;
   onPublish: (task: BusinessTask) => Promise<void>;
   onSave: (task: BusinessTask) => Promise<void>;
   onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onAiStatus: (status: AiStatus) => void;
+  onRecover: (task: BusinessTask) => Promise<BusinessTask>;
 }
-export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
-  const [task, setTask] = useState<BusinessTask>(() =>
+export function TaskBuilder({
+  existing,
+  onPublish,
+  onSave,
+  onClose,
+  onDirtyChange,
+  onAiStatus,
+  onRecover,
+}: Props) {
+  const [task, updateTask] = useState<BusinessTask>(() =>
     existing
       ? structuredClone(existing)
       : {
@@ -56,14 +76,52 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
         },
   );
   const [step, setStep] = useState(existing ? 2 : 0);
+  const [base, setBase] = useState(task);
+  const [conflict, setConflict] = useState(false);
+  const [review, setReview] = useState<{
+    local: BusinessTask;
+    remote: BusinessTask;
+    fields: EditableKey[];
+    choices: Partial<Record<EditableKey, "local" | "remote">>;
+  } | null>(null);
+  const dirty = taskFingerprint(task) !== taskFingerprint(base);
+  const unresolved =
+    review?.fields.some((key) => !review.choices[key]) ?? false;
+  useUnsavedChanges(dirty);
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [approved, setApproved] = useState(false);
+  function setTask(
+    value: BusinessTask | ((previous: BusinessTask) => BusinessTask),
+  ) {
+    setApproved(false);
+    updateTask((previous) => {
+      const next = typeof value === "function" ? value(previous) : value;
+      return taskFingerprint(previous) === taskFingerprint(next)
+        ? next
+        : {
+            ...next,
+            confirmed: [],
+            hasUnpublishedChanges: next.published,
+          };
+    });
+  }
   const [exampleLoaded, setExampleLoaded] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  const aiPending = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(
+    () => () => {
+      controller.current?.abort();
+      if (aiPending.current) onAiStatus("idle");
+    },
+    [onAiStatus],
+  );
   useEffect(() => {
     heading.current?.focus();
   }, [step]);
@@ -72,6 +130,41 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
     setTask((prev) => editField(prev, key, value));
     setApproved(false);
   };
+  function saveError(error: unknown) {
+    if (error instanceof SkillArenaApiError && error.status === 409) {
+      setConflict(true);
+      setApproved(false);
+      setError(
+        "На сервере появилась другая версия. Ваш текст сохранён в форме. Загрузите изменения для сравнения.",
+      );
+    } else
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось сохранить карточку.",
+      );
+  }
+  async function recover() {
+    setBusy(true);
+    try {
+      const remote = await onRecover(task);
+      const { merged, conflicts } = mergeTaskEdits(base, task, remote);
+      setReview({ local: task, remote, fields: conflicts, choices: {} });
+      setBase(remote);
+      setTask(merged);
+      setApproved(false);
+      setConflict(false);
+      setError("");
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось загрузить новую версию. Ваш текст остаётся в форме.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   async function analyze() {
     if (task.brief.trim().length < 20) {
       setError(
@@ -80,14 +173,18 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
       return;
     }
     setBusy(true);
+    onAiStatus("loading");
+    aiPending.current = true;
     setError("");
     controller.current?.abort();
     controller.current = new AbortController();
     try {
       const result = await analyzeBrief(task, controller.current.signal);
       setAnalysis(result);
+      onAiStatus(result.ai.mode === "live" ? "live" : "fallback");
       setStep(1);
     } catch (err) {
+      if (!controller.current.signal.aborted) onAiStatus("error");
       if (!controller.current.signal.aborted)
         setError(
           err instanceof Error
@@ -95,11 +192,12 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
             : "Не удалось проанализировать задачу.",
         );
     } finally {
+      aiPending.current = false;
       setBusy(false);
     }
   }
-  const previewTask = approved ? confirmFields(task) : task;
   const publish = async () => {
+    if (unresolved || conflict) return;
     if (!task.title.trim()) {
       setError("Добавьте название задачи.");
       return;
@@ -123,27 +221,20 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
         tags: task.tags.length ? task.tags : [task.topic],
       });
     } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Не удалось опубликовать задачу.",
-      );
+      saveError(error);
     } finally {
       setBusy(false);
     }
   };
 
   async function saveDraft() {
+    if (unresolved || conflict) return;
     setBusy(true);
     setError("");
     try {
       await onSave(task);
     } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Не удалось сохранить черновик.",
-      );
+      saveError(error);
     } finally {
       setBusy(false);
     }
@@ -190,6 +281,62 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
           className="builder-main panel integration-fieldset"
           disabled={busy}
         >
+          {review && (
+            <section className="conflict-review" aria-label="Сравнение версий">
+              <h2>Проверьте объединённую карточку</h2>
+              <p>
+                Загружена версия {review.remote.serverVersion}. Ваши независимые
+                правки сохранены в форме. Ничего ещё не отправлено на сервер.
+              </p>
+              {review.fields.length === 0 && (
+                <p>
+                  Пересечений нет. Проверьте поля и сохраните карточку заново.
+                </p>
+              )}
+              {review.fields.map((key) => (
+                <fieldset key={key}>
+                  <legend>
+                    {editableLabel(key)} · изменено в обеих версиях
+                  </legend>
+                  {(["local", "remote"] as const).map((choice) => (
+                    <label key={choice}>
+                      <input
+                        type="radio"
+                        name={`resolve-${key}`}
+                        checked={review.choices[key] === choice}
+                        onChange={() => {
+                          setTask((previous) => ({
+                            ...previous,
+                            [key]: review[choice][key],
+                            confirmed: [],
+                          }));
+                          setReview({
+                            ...review,
+                            choices: { ...review.choices, [key]: choice },
+                          });
+                          setApproved(false);
+                        }}
+                      />
+                      <span>
+                        <b>
+                          {choice === "local"
+                            ? "Мой текст"
+                            : "Текст на сервере"}
+                        </b>
+                        <pre>{review[choice][key] || "(пусто)"}</pre>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+              {unresolved && (
+                <p role="status">
+                  Выберите текст для каждого пересекающегося поля перед
+                  сохранением.
+                </p>
+              )}
+            </section>
+          )}
           {step === 0 && (
             <>
               <div className="form-intro">
@@ -270,10 +417,8 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
                 </button>
               </div>
               <div className="ai-note">
-                <span className="status-dot" />{" "}
-                {apiConfigured
-                  ? "AI задаст вопросы по вашему описанию"
-                  : "Демо AI · вопросы по шаблону и содержанию брифа"}
+                <span className="status-dot" /> AI задаст вопросы по вашему
+                описанию. Демо-режим будет отмечен отдельно.
               </div>
               <button
                 className="btn btn-primary full"
@@ -302,6 +447,16 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
                 </span>
               </div>
               <blockquote className="brief-quote">{task.brief}</blockquote>
+              {analysis?.ai.mode === "fallback" && (
+                <p className="ai-fallback-note" role="status">
+                  {aiFallbackMessage(analysis.ai.reason)}
+                </p>
+              )}
+              {analysis?.ai.mode === "live" && (
+                <p className="muted text-small">
+                  Получен ответ модели {analysis.ai.model}.
+                </p>
+              )}
               <div className="question-intro">
                 <h2>Помогите команде увидеть полную картину</h2>
                 <p>
@@ -472,7 +627,11 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
                 </span>
               </label>
               <div className="form-actions">
-                <button className="btn btn-ghost" onClick={saveDraft}>
+                <button
+                  className="btn btn-ghost"
+                  onClick={saveDraft}
+                  disabled={unresolved || conflict}
+                >
                   {busy ? "Сохраняем…" : "Сохранить черновик"}
                 </button>
                 <button
@@ -480,6 +639,8 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
                   onClick={publish}
                   disabled={
                     busy ||
+                    unresolved ||
+                    conflict ||
                     !approved ||
                     !task.title.trim() ||
                     !task.company.trim()
@@ -497,7 +658,12 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
           {error && (
             <div className="error-box" role="alert">
               <p>{error}</p>
-              {step === 0 && apiConfigured && (
+              {conflict && (
+                <button className="btn btn-ghost" onClick={recover}>
+                  Загрузить новую версию и сравнить
+                </button>
+              )}
+              {step === 0 && (
                 <div>
                   <button className="text-button" onClick={analyze}>
                     <RotateCcw size={14} /> Повторить
@@ -506,6 +672,7 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
                     className="text-button"
                     onClick={() => {
                       setAnalysis(demoAnalysis(task));
+                      onAiStatus("fallback");
                       setError("");
                       setStep(1);
                     }}
@@ -518,7 +685,7 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
           )}
         </fieldset>
         <aside className="builder-aside">
-          <RatingPanel task={previewTask} preview />
+          <RatingPanel task={task} preview />
           <div className="builder-explainer">
             <span className="eyebrow">ЯСНОСТЬ ДАЁТ ПРЕИМУЩЕСТВО</span>
             <h3>
@@ -543,8 +710,8 @@ export function TaskBuilder({ existing, onPublish, onSave, onClose }: Props) {
           {step === 2 && (
             <p className="rating-preview-note" aria-live="polite">
               {approved
-                ? `После подтверждения: ${scoreTask(previewTask).total}/100`
-                : "Подтвердите сведения, чтобы пересчитать рейтинг."}
+                ? `Готово к публикации: ${scoreTask(confirmFields(task)).total}/100`
+                : "Предварительный рейтинг ещё не опубликован."}
             </p>
           )}
         </aside>

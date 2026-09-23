@@ -13,11 +13,12 @@ import {
 } from "lucide-react";
 import {
   safePrototype,
+  readiness,
   type BusinessTask,
   type Proposal,
   type Team,
 } from "@/lib/domain";
-import { EmptyState, ReadinessBadge } from "./ui";
+import { EmptyState } from "./ui";
 
 export function BusinessWorkspace({
   teams,
@@ -85,12 +86,20 @@ export function BusinessWorkspace({
                 <div>
                   <span className="text-small muted">{item.company}</span>
                   {item.published ? (
-                    <ReadinessBadge task={item} />
+                    <span className="badge">
+                      В каталоге: {item.publishedScore}/100 ·{" "}
+                      {readiness(item.publishedScore ?? 0)}
+                    </span>
                   ) : (
                     <span className="badge">Не опубликована</span>
                   )}
                 </div>
                 <h3>{item.title || "Новая задача"}</h3>
+                {item.hasUnpublishedChanges && (
+                  <p className="unpublished-note">
+                    Есть неопубликованные изменения
+                  </p>
+                )}
                 <span>
                   <MessageSquare size={13} />{" "}
                   {
@@ -289,19 +298,20 @@ function ProposalCard({
 }
 
 export function TeamWorkspace({
+  team,
   teams,
   tasks,
   proposals,
   onTask,
   onCatalog,
 }: {
+  team?: Team;
   teams: Team[];
   tasks: BusinessTask[];
   proposals: Proposal[];
   onTask: (id: string) => void;
   onCatalog: () => void;
 }) {
-  const team = teams[0];
   const own = proposals.filter((proposal) => proposal.teamId === team?.id);
   if (!team)
     return (
