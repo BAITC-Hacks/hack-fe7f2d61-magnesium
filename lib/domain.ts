@@ -87,6 +87,8 @@ export interface BusinessTask extends TaskFields {
   createdAt: string;
   tags: string[];
   serverVersion?: number;
+  publishedScore?: number;
+  hasUnpublishedChanges?: boolean;
 }
 export interface Team {
   id: string;
@@ -191,7 +193,8 @@ export function editField(
   return {
     ...task,
     [key]: value,
-    confirmed: task.confirmed.filter((field) => field !== key),
+    confirmed: [],
+    hasUnpublishedChanges: task.published,
   };
 }
 export function safePrototype(value: string): boolean {

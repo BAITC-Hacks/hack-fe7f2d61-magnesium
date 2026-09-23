@@ -1,4 +1,6 @@
 "use client";
+import { useUnsavedChanges } from "./use-unsaved-changes";
+import { DiscardDialog } from "./discard-dialog";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -198,6 +200,14 @@ function ProposalDialog({
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const dirty = Object.values(draft).some((value) => value.length > 0);
+  useUnsavedChanges(dirty);
+  function close() {
+    if (busy) return;
+    if (dirty) setConfirmClose(true);
+    else onClose();
+  }
   useEffect(() => {
     const element = dialog.current;
     element?.showModal();
@@ -237,13 +247,27 @@ function ProposalDialog({
       ref={dialog}
       className="proposal-dialog"
       aria-labelledby="proposal-title"
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) close();
       }}
     >
+      {confirmClose && (
+        <DiscardDialog
+          onKeep={() => setConfirmClose(false)}
+          onDiscard={onClose}
+        />
+      )}
       <div className="dialog-inner">
-        <button className="dialog-close" onClick={onClose} aria-label="Закрыть">
+        <button
+          className="dialog-close"
+          onClick={close}
+          disabled={busy}
+          aria-label="Закрыть"
+        >
           <X size={20} />
         </button>
         <span className="eyebrow lime">ОТКРЫТЫЙ ВЫБОР КОМАНД</span>

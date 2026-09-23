@@ -6,7 +6,12 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
-import { fields, scoreTask, type BusinessTask } from "@/lib/domain";
+import {
+  confirmFields,
+  fields,
+  scoreTask,
+  type BusinessTask,
+} from "@/lib/domain";
 
 export function Brand({ small = false }: { small?: boolean }) {
   return (
@@ -119,22 +124,43 @@ export function RatingPanel({
   task: BusinessTask;
   preview?: boolean;
 }) {
-  const { total, breakdown, missing } = scoreTask(task);
+  const ratedTask = preview ? confirmFields(task) : task;
+  const { total, breakdown, missing } = scoreTask(ratedTask);
   const groups = [...new Set(fields.map((field) => field.group))];
   return (
     <section className="panel rating-panel">
       <div className="section-caption">
-        <span className="eyebrow">Готовность задачи</span>
+        <span className="eyebrow">
+          {preview ? "После подтверждения" : "Готовность задачи"}
+        </span>
         <Zap size={16} className="lime" />
       </div>
       <div className="rating-number mono" aria-live="polite" aria-atomic="true">
         {total}
         <span>/100</span>
       </div>
-      <ReadinessBadge task={task} />
+      <ReadinessBadge task={ratedTask} />
+      {preview && (
+        <div className="rating-snapshots">
+          <span>
+            Подтверждено в черновике <b>{scoreTask(task).total}/100</b>
+          </span>
+          <span>
+            В каталоге{" "}
+            <b>
+              {task.publishedScore === undefined
+                ? "Не опубликована"
+                : `${task.publishedScore}/100`}
+            </b>
+          </span>
+          {task.hasUnpublishedChanges && (
+            <small>Есть неопубликованные изменения</small>
+          )}
+        </div>
+      )}
       <p className="rating-description">
         {preview
-          ? "Баллы начисляются только за заполненные и подтверждённые сведения."
+          ? "Предварительный расчёт. Каталог изменится только после вашего подтверждения и публикации."
           : "Чем понятнее задача, тем проще команде начать работу."}
       </p>
       <div className="rating-track">
@@ -175,7 +201,8 @@ export function RatingPanel({
               Следующий шаг: <strong>{missing[0].label.toLowerCase()}</strong>
               <br />
               <span>
-                Подтвердите поле и получите +{missing[0].weight} баллов.
+                Заполните поле и подтвердите карточку: +{missing[0].weight}{" "}
+                баллов.
               </span>
             </p>
           </>
@@ -185,7 +212,11 @@ export function RatingPanel({
             <p>
               <strong>Всё готово к старту</strong>
               <br />
-              <span>Все сведения заполнены и подтверждены.</span>
+              <span>
+                {preview
+                  ? "Все поля заполнены. Осталось подтвердить и опубликовать."
+                  : "Все сведения заполнены и подтверждены."}
+              </span>
             </p>
           </>
         )}
