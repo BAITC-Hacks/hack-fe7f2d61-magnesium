@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --import tsx --watch src/server.ts",
+    "dev": "node --env-file-if-exists=.env node_modules/tsx/dist/cli.mjs watch --clear-screen=false src/server.ts",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",

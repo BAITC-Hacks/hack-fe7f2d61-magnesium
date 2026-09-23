@@ -44,7 +44,7 @@ async function checkPort(value) {
     probe.once("error", () =>
       reject(
         new Error(
-          `Port ${port} is busy. Set FRONTEND_PORT and BACKEND_PORT to free ports.`,
+          `Port ${port} is busy. If SkillArena is already running, open its URL or stop it with Ctrl+C in its terminal. For another app using this port, set FRONTEND_PORT and BACKEND_PORT to free ports.`,
         ),
       ),
     );
@@ -62,7 +62,13 @@ try {
 }
 
 start(
-  ["--env-file-if-exists=.env", "--import", "tsx", "--watch", "src/server.ts"],
+  [
+    "--env-file-if-exists=.env",
+    resolve(root, "backend/node_modules/tsx/dist/cli.mjs"),
+    "watch",
+    "--clear-screen=false",
+    "src/server.ts",
+  ],
   resolve(root, "backend"),
   { PORT: backendPort },
 );
