@@ -1,2 +1,22 @@
-# hack-fe7f2d61-magnesium
-Hackathon team repository for Magnesium
+# SkillArena AI — Magnesium / Hackalem
+
+Рабочий backend для официального кейса AI Sana: бизнес улучшает описание задачи, подтверждает карточку и получает прозрачный рейтинг готовности. Студенты выбирают задачи из открытого каталога и отправляют предложения; бизнес принимает решение вручную.
+
+**Сценарий:** черновик → AI-уточнения → редактируемая карточка → подтверждение → рейтинг → публикация → отклик → выбор команды → баллы за подтверждённый прогресс.
+
+- [Запуск backend, архитектура, рейтинг и проверки](backend/README.md)
+- [Интеграция с Next.js / TypeScript](docs/frontend-integration.md)
+- [OpenAPI](backend/openapi.json)
+- [Официальный кейс](https://docs.google.com/document/d/1lFWekP2SirFarATKkWa5neHNL5DlhjZKkUacvGyZk8k/edit)
+
+```bash
+cd backend
+npm ci
+cp .env.example .env
+# Добавьте OPENAI_API_KEY в .env локально.
+npm run dev
+```
+
+Нужен Node.js 24+. API: `http://127.0.0.1:3001`, интерактивная документация: `http://127.0.0.1:3001/docs/`.
+
+Backend находится в `backend/` и не зависит от структуры Next.js. Фронтенд разрабатывается отдельно. Ранняя концепция AI-симуляций отложена: текущий MVP реализует обязательный сценарий официального кейса.
